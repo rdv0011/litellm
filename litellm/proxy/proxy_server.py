@@ -24,6 +24,8 @@ from typing import (
     get_type_hints,
 )
 
+from pydantic import BaseModel
+
 from litellm.types.utils import (
     ModelResponse,
     ModelResponseStream,
@@ -3045,6 +3047,18 @@ async def async_assistants_data_generator(
         error_returned = json.dumps({"error": proxy_exception.to_dict()})
         yield f"data: {error_returned}\n\n"
 
+def ensure_serializable(data: BaseModel) -> BaseModel:
+     """
+     Workaround for https://github.com/pydantic/pydantic/issues/7713, see https://github.com/pydantic/pydantic/issues/7713#issuecomment-2604574418
+     """
+     try:
+         json.dumps(data)
+     except TypeError:
+         # use `vars` to coerce nested data into dictionaries
+         data_json_from_dicts = json.dumps(data, default=lambda x: vars(x))
+         data_obj = json.loads(data_json_from_dicts)
+         data = type(data)(**data_obj)
+     return data
 
 async def async_data_generator(
     response, user_api_key_dict: UserAPIKeyAuth, request_data: dict
@@ -3065,7 +3079,7 @@ async def async_data_generator(
             )
 
             if isinstance(chunk, BaseModel):
-                chunk = chunk.model_dump_json(exclude_none=True, exclude_unset=True)
+                chunk = ensure_serializable(chunk).model_dump_json(exclude_none=True, exclude_unset=True)
 
             try:
                 yield f"data: {chunk}\n\n"
